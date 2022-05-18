@@ -1,0 +1,47 @@
+﻿IF OBJECT_ID('tempdb..#PY') IS NOT NULL 
+DROP TABLE #PY
+
+IF OBJECT_ID('tempdb..#CY') IS NOT NULL 
+DROP TABLE #CY
+
+DECLARE @lastMonthsEnd DATE = (SELECT MAX(FYMonthEndingDate)
+								FROM dbo.DateDimension
+								WHERE FYMonthEndingDate < GETDATE())
+
+DECLARE @twoMonthsEnd DATE = (SELECT MAX(FYMonthEndingDate)
+								FROM dbo.DateDimension
+								WHERE FYMonthEndingDate < @lastMonthsEnd)
+
+SELECT  LocationDimensionID,
+		SUM(SaleAmount) AS 'PY_online_sales',
+		Count(Distinct(SalesBasketFactID)) AS 'PY_online_baskets'
+INTO #PY
+FROM SalesBasketFact AS s
+JOIN CustomerDimension AS c on c.CustomerDimensionID = s.CustomerDimensionID
+WHERE CheckoutTypeDimensionID = 3 AND s.CustomerDimensionID <>1 AND c.LastName <> 'Import Hy-Vee Import' AND DateDimensionID BETWEEN CONVERT(INT, CONVERT(CHAR(8), DATEADD(MONTH, -12, @twoMonthsEnd),112)) AND CONVERT(INT, CONVERT(CHAR(8),DATEADD(MONTH, -12, @lastMonthsEnd),112))
+GROUP BY LocationDimensionID
+
+
+SELECT  LocationDimensionID,
+		SUM(SaleAmount) AS 'CY_online_sales',
+		Count(Distinct(SalesBasketFactID)) AS 'CY_online_baskets'
+INTO #CY
+FROM SalesBasketFact AS s
+JOIN CustomerDimension AS c on c.CustomerDimensionID = s.CustomerDimensionID
+WHERE CheckoutTypeDimensionID = 3 AND s.CustomerDimensionID <>1 AND c.LastName <> 'Import Hy-Vee Import' AND DateDimensionID BETWEEN CONVERT(INT, CONVERT(CHAR(8), @twoMonthsEnd,112)) AND CONVERT(INT, CONVERT(CHAR(8),@lastMonthsEnd,112))
+GROUP BY LocationDimensionID
+
+SELECT p.LocationDimensionID,
+		PY_online_sales,
+		CY_online_sales,
+		(CY_online_sales/1.0 - PY_online_sales)/PY_online_sales*100 AS 'perc_sales_increase',
+		PY_online_baskets,
+		CY_online_baskets,
+		(CY_online_baskets/1.0 - PY_online_baskets)/PY_online_baskets*100 AS 'perc_baskets_increase'
+FROM #PY as p
+JOIN #CY as c on p.LocationDimensionID = c.LocationDimensionID
+GROUP BY p.LocationDimensionID,
+		PY_online_sales,
+		CY_online_sales,
+		PY_online_baskets,
+		CY_online_baskets

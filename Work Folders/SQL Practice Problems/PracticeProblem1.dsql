@@ -1,0 +1,36 @@
+﻿IF OBJECT_ID ('tempdb..#week1') IS NOT NULL
+DROP TABLE #week1
+
+IF OBJECT_ID('tempdb..#week2') IS NOT NULL
+DROP TABLE #week2
+
+ DECLARE @lastWeekEnd DATE = (SELECT MAX(FYWeekEndingDate)
+								FROM dbo.DateDimension
+								WHERE FYWeekEndingDate < GETDATE())
+
+SELECT Subcategory,
+		SUM(SaleAmount) AS 'Sales'
+INTO #week1
+FROM SalesDailyItemFact AS salesdaily
+JOIN StoreItemDimension AS sid ON salesdaily.StoreItemDimensionID = sid.StoreItemDimensionID
+WHERE DateDimensionID BETWEEN  CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, -13, @lastweekend),112)) AND CONVERT(INT, CONVERT(CHAR(8),DATEADD(DAY, -7, @lastweekend),112))
+GROUP BY Subcategory
+
+SELECT Subcategory,
+		SUM(SaleAmount) AS 'Sales'
+INTO #week2
+FROM SalesDailyItemFact AS salesdaily
+JOIN StoreItemDimension AS sid ON salesdaily.StoreItemDimensionID = sid.StoreItemDimensionID
+WHERE DateDimensionID BETWEEN  CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, -6, @lastweekend),112)) AND CONVERT(INT, CONVERT(CHAR(8),@lastweekend,112))
+GROUP BY Subcategory
+
+SELECT #week1.Subcategory,
+		#week1.Sales AS 'week1_Sales',
+		#week2.Sales AS 'week2_Sales',
+		(#week2.Sales*1.0 - #week1.Sales) AS 'sales_increase'
+FROM #week1
+JOIN #week2 ON #week1.Subcategory = #week2.Subcategory
+GROUP BY #week1.Subcategory,
+		#week1.Sales,
+		#week2.Sales
+ORDER BY 'sales_increase' DESC

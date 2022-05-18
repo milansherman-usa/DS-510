@@ -1,0 +1,44 @@
+﻿DROP TABLE #cstore
+DROP TABLE #foodstore
+DROP TABLE #sales2
+
+DECLARE @lastWeekEnd DATE = (SELECT MAX(FYWeekEndingDate)
+								FROM dbo.DateDimension
+								WHERE FYWeekEndingDate < GETDATE())
+
+SELECT l1.LocationDimensionID, l1.StoreNumber, l1.LocationTypeID, l1.LocationTypeDescription
+INTO #cstore
+FROM LocationDimension as l1
+JOIN LocationDimension as l2 on l1.StoreNumber = l2.StoreNumber
+WHERE  l1.LocationTypeID = 5 AND l2.LocationTypeID = 1
+GROUP BY l1.LocationDimensionID, l1.StoreNumber, l1.LocationTypeID, l1.LocationTypeDescription
+ORDER BY l1.StoreNumber
+
+SELECT l1.LocationDimensionID, l1.StoreNumber, l1.LocationTypeID, l1.LocationTypeDescription
+INTO #foodstore
+FROM LocationDimension as l1
+JOIN LocationDimension as l2 on l1.StoreNumber = l2.StoreNumber
+WHERE  l1.LocationTypeID = 1 AND l2.LocationTypeID = 5
+GROUP BY l1.LocationDimensionID, l1.StoreNumber, l1.LocationTypeID, l1.LocationTypeDescription
+ORDER BY l1.StoreNumber
+
+SELECT FactsWeekSubSegment,
+		COUNT(DISTINCT(s.CustomerDimensionID)) AS 'Food_Customers',
+		(SELECT COUNT(DISTINCT(s.CustomerDimensionID))
+		FROM SalesLineItemFact AS s
+		JOIN CustomerDimension AS c ON s.CustomerDimensionID = c.CustomerDimensionID
+		JOIN #cstore AS cs ON s.LocationDimensionID = cs.LocationDimensionID
+		WHERE DateDimensionID BETWEEN CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, -60, @lastweekend),112)) AND CONVERT(INT, CONVERT(CHAR(8),@lastweekend,112))) AS 'CStore'
+INTO #sales2
+FROM SalesLineItemFact AS s
+JOIN CustomerDimension AS c ON s.CustomerDimensionID = c.CustomerDimensionID
+JOIN #foodstore AS f ON s.LocationDimensionID = f.LocationDimensionID
+WHERE DateDimensionID BETWEEN CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, -60, @lastweekend),112)) AND CONVERT(INT, CONVERT(CHAR(8),@lastweekend,112))	
+GROUP BY FactsWeekSubSegment
+
+SELECT FactsWeekSubSegment,
+		Food_Customers,
+		CStore,
+		Food_Customers*1.0/CStore*100 AS perc_food
+FROM #sales2
+GROUP BY FactsWeekSubSegment, Food_Customers, CStore

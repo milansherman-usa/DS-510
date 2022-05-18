@@ -1,0 +1,220 @@
+﻿--prep_query
+    DECLARE @EDate DATE = (SELECT MAX(FYWeekEndingDate)
+    FROM dbo.DateDimension
+    WHERE FYWeekEndingDate < GETDATE())
+    DECLARE @BDate DATE = (SELECT MIN(ActualDate)
+    FROM dbo.DateDimension
+    WHERE FYWeekEndingDate = DATEADD(WEEK, -103, @EDate))
+    DECLARE @PriorBDate DATE = DATEADD(WEEK, -52, @BDate)
+    
+    IF OBJECT_ID('tempdb..#Dates') IS NOT NULL
+    DROP TABLE #Dates
+    SELECT DISTINCT FYWeekEndingDate,
+    DATEADD(DAY, -1, FYWeekEndingDate) AS WeekEndingDate,
+    FYYearNumber,
+    FYWeekNumber
+    INTO #Dates
+    FROM dbo.DateDimension
+    WHERE ActualDate BETWEEN @PriorBDate AND @EDate
+    
+    IF OBJECT_ID('tempdb..#NewItemsDates') IS NOT NULL
+    DROP TABLE #NewItemsDates
+    SELECT DISTINCT FYWeekEndingDate,
+    ActualDate,
+    FYYearNumber,
+    FYWeekNumber
+    INTO #NewItemsDates
+    FROM dbo.DateDimension
+    WHERE ActualDate BETWEEN @PriorBDate AND @EDate
+    
+    --UPCs for Nielsen ROM data
+    IF OBJECT_ID('tempdb..#UPC') IS NOT NULL
+    DROP TABLE #UPC
+    SELECT si.StoreItemDimensionID,
+    LEFT(si.UPC, 12) AS UPC,
+    si.NielsenCategory_Key,
+    si.NielsenSubCategory_Key
+    INTO #UPC
+    FROM dbo.StoreItemDimension si
+    
+    --Weekly ROM sales from T_DIM_ODS.dbo.Nielsen_MarketData
+    IF OBJECT_ID('tempdb..#NielsenSales') IS NOT NULL
+    DROP TABLE #NielsenSales
+    SELECT d.FYWeekEndingDate AS week,
+    d.WeekEndingDate AS CWeek,
+    d.FYYearNumber,
+    d.FYWeekNumber,
+    ISNULL(u.NielsenCategory_Key, -1) AS nielsenCategory_Key,
+    ISNULL(u.NielsenSubcategory_Key, -1) AS nielsenSubcategory_Key,
+    SUM(nmd.Dollars) AS sales
+    INTO #NielsenSales
+    FROM T_DIM_ODS.dbo.Nielsen_MarketData nmd
+    JOIN #Dates d
+    ON d.WeekEndingDate = nmd.WeekEndingDate
+    JOIN #UPC u
+    ON u.UPC = nmd.UPC
+    WHERE nmd.Market_Display_Name = 'Hy-Vee Total xAOC Rem'
+    GROUP BY ISNULL(u.NielsenCategory_Key, -1),
+    ISNULL(u.NielsenSubcategory_Key, -1),
+    d.FYWeekEndingDate,
+    d.WeekEndingDate,
+    d.FYYearNumber,
+    d.FYWeekNumber
+    
+    --Calculating prior year ROM sales
+    IF OBJECT_ID('tempdb..#NielsenSalesComp') IS NOT NULL
+    DROP TABLE #NielsenSalesComp
+    SELECT c1.week,
+    c1.FYYearNumber,
+    c1.FYWeekNumber,
+    c1.nielsenCategory_Key,
+    c1.nielsenSubcategory_Key,
+    c1.sales,
+    c2.sales AS PYsales,
+    ISNULL((c1.sales - c2.sales) / NULLIF(c2.sales, 0), 0) AS PYchg
+    INTO #NielsenSalesComp
+    FROM #NielsenSales c1
+    JOIN #NielsenSales c2
+    ON c2.nielsenCategory_Key = c1.nielsenCategory_Key
+    AND c2.nielsenSubcategory_Key = c1.nielsenSubcategory_Key
+    AND c2.FYWeekNumber = c1.FYWeekNumber
+    AND c2.FYYearNumber = c1.FYYearNumber - 1
+    
+    --Identifying items first sold in last 3 years
+    IF OBJECT_ID('tempdb..#NewNonSeasonal') IS NOT NULL
+    DROP TABLE #NewNonSeasonal
+    SELECT i.StoreItemDimensionID,
+    i.NielsenCategory_Key,
+    i.NielsenSubcategory_Key,
+    i.FirstSoldDate,
+    i.LastSoldDate
+    INTO #NewNonSeasonal
+    FROM dbo.StoreItemDimension i
+    JOIN #NewItemsDates d
+    ON d.ActualDate = i.FirstSoldDate
+    WHERE i.NielsenSubcategory_Key > -1
+    AND i.NielsenSubcategory NOT LIKE '% SEASONAL%'
+    AND i.NielsenCategory <> 'SEASONAL'
+    AND i.Description NOT LIKE '%seasonal%'
+    
+    --Sales for items first sold within 52 weeks of each week
+    IF OBJECT_ID('tempdb..#NewSales') IS NOT NULL
+    DROP TABLE #NewSales
+    SELECT d.FYWeekEndingDate,
+    n.NielsenCategory_Key,
+    n.NielsenSubcategory_Key,
+    COUNT(DISTINCT n.StoreItemDimensionID) AS NewNonSeasonalItems,
+    SUM(sd.SaleAmount) AS NewSales
+    INTO #NewSales
+    FROM dbo.SalesDailyItemFact sd
+    JOIN #NewNonSeasonal n
+    ON n.StoreItemDimensionID = sd.StoreItemDimensionID
+    JOIN dbo.DateDimension d
+    ON d.DateDimensionID = sd.DateDimensionID
+    WHERE sd.DateDimensionID BETWEEN CONVERT(INT, CONVERT(CHAR(8), @BDate, 112)) AND CONVERT(INT, CONVERT(CHAR(8), @EDate, 112))
+    AND n.FirstSoldDate >= DATEADD(WEEK, -52, d.ActualDate)
+    GROUP BY d.FYWeekEndingDate,
+    n.NielsenCategory_Key,
+    n.NielsenSubcategory_Key
+    
+	--Sales for all non-seasonal items
+   IF OBJECT_ID('tempdb..#sales') IS NOT NULL
+    DROP TABLE #Sales
+    SELECT i.NielsenCategory AS nielsenCategory,
+    i.NielsenSubcategory AS nielsenSubcategory,
+    i.NielsenCategory_Key AS nielsenCategory_Key,
+    i.NielsenSubcategory_Key AS nielsenSubcategory_Key,
+	d.FYWeekEndingDate AS week,
+    d.FYWeekNumber AS weekNum,
+    d.FYYearNumber AS yearNum,
+    SUM(s.SaleAmount) AS 'sales',
+    COUNT(DISTINCT s.StoreItemDimensionID) AS ItemCt --Item Count is what causes query slowness - remove if we decide we don't need sales per item change points
+	INTO #Sales
+    FROM dbo.SalesLineItemFact s
+    JOIN dbo.DateDimension d
+    ON d.DateDimensionID = s.DateDimensionID
+    JOIN dbo.LocationDimension l
+    ON l.LocationDimensionID = s.LocationDimensionID
+    JOIN dbo.POSDepartmentDimension dep
+    ON dep.POSDepartmentDimensionID = s.POSDepartmentDimensionID
+    JOIN dbo.StoreItemDimension i
+    ON i.StoreItemDimensionID = s.StoreItemDimensionID
+    JOIN #Dates da
+    ON da.FYWeekEndingDate = d.FYWeekEndingDate
+    WHERE l.New_Key = 1
+    AND i.Category_Key NOT IN (0, 156, 241, 270, 269, 254, 85)
+    AND i.SubCategory_Key NOT IN (1028, 619, 1420, 716, 481, 482, 1712, 566)
+    AND i.NielsenCategory_Key > -1
+    AND i.NielsenSubcategory NOT LIKE '% SEASONAL%'
+    AND i.NielsenCategory <> 'SEASONAL'
+    AND i.Description NOT LIKE '%seasonal%'
+    GROUP BY i.NielsenCategory,
+    i.NielsenSubcategory,
+    i.NielsenCategory_Key,
+    i.NielsenSubcategory_Key,
+    d.FYWeekEndingDate,
+    d.FYWeekNumber,
+    d.FYYearNumber
+    HAVING SUM(s.SaleAmount) > 1000
+    
+    --Calculating prior year sales
+    IF OBJECT_ID('tempdb..#SalesComp') IS NOT NULL
+    DROP TABLE #SalesComp;
+    SELECT s1.nielsenCategory,
+    s1.nielsenSubcategory,
+    s1.nielsenCategory_Key,
+    s1.nielsenSubcategory_Key,
+    s1.week,
+    SUM(s1.sales) AS sales,
+    SUM(s2.sales) AS PYsales,
+    (SUM(s1.sales) - SUM(s2.sales)) / SUM(s2.sales) AS PYchg,
+    SUM(s1.ItemCt) AS ItemCt,
+    SUM(s2.ItemCt) AS PYItemCt,
+    SUM(s1.sales / s1.ItemCt) AS salesPerItem,
+    SUM(s2.sales / s2.ItemCt) AS PYsalesPerItem,
+    (SUM(s1.sales / s1.ItemCt) - SUM(s2.sales / s2.ItemCt)) / SUM(s2.sales / s2.ItemCt) AS PYchgPerItem
+    INTO #SalesComp
+    FROM #Sales s1
+    JOIN #Sales s2
+    ON s2.nielsenSubcategory_Key = s1.nielsenSubcategory_Key
+    AND s2.nielsenCategory_Key = s1.nielsenCategory_Key
+    AND s2.weekNum = s1.weekNum
+    AND s2.yearNum = s1.yearNum - 1
+    GROUP BY s1.nielsenCategory,
+    s1.nielsenSubcategory,
+    s1.nielsenCategory_Key,
+    s1.nielsenSubcategory_Key,
+    s1.week
+    
+    --final_query
+    --Joining total sales, ROM sales, new item sales
+    SELECT s.nielsenCategory,
+    s.nielsenCategory_Key,
+    s.nielsenSubcategory,
+    s.nielsenSubcategory_Key,
+    s.nielsenCategory + '-' + s.nielsenSubcategory AS nielsenCatSubcat,
+	s.week,
+    s.sales,
+    s.PYsales,
+    s.PYchg,
+    s.ItemCt,
+    s.PYItemCt,
+    s.salesPerItem,
+    s.PYsalesPerItem,
+    s.PYchgPerItem,
+    ISNULL(ns.sales, 0) AS sales_ROM,
+    ISNULL(ns.PYsales, 0) AS PYsales_ROM,
+    ISNULL(ns.PYchg, 0) AS PYchg_ROM,
+    ISNULL(n.NewSales, 0) AS NewSales,
+    ISNULL(n.NewSales, 0) / s.sales AS NewPctOfSales,
+    ISNULL(n.NewNonSeasonalItems, 0) AS NewNonSeasonalItems,
+    ISNULL(n.NewSales / NULLIF(ISNULL(n.NewNonSeasonalItems, 0), 0), 0) AS NewSalesPerItem
+    FROM #SalesComp s
+    LEFT JOIN #NielsenSalesComp ns
+    ON ns.nielsenCategory_Key = s.nielsenCategory_Key
+    AND ns.nielsenSubcategory_Key = s.nielsenSubcategory_Key
+    AND ns.week = s.week
+    LEFT JOIN #NewSales n
+    ON n.NielsenCategory_Key = s.nielsenCategory_Key
+    AND n.NielsenSubcategory_Key = s.nielsenSubcategory_Key
+    AND n.FYWeekEndingDate = s.week

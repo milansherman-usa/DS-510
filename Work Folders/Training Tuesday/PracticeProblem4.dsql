@@ -1,0 +1,95 @@
+﻿DECLARE @lastWeek DATE = (SELECT MAX(FYWeekEndingDate)
+  FROM dbo.DateDimension
+  WHERE FYWeekEndingDate < GETDATE())
+DECLARE @lastMonth DATE = DATEADD(MONTH, -1, @lastWeek)
+PRINT(@lastWeek)
+PRINT(@lastMonth)
+
+
+IF OBJECT_ID('tempdb..#online_sales') IS NOT NULL
+DROP TABLE #online_sales
+SELECT LocationDimensionID,
+SUM(SaleAmount) AS 'PYsales',
+COUNT(DISTINCT(BasketKey)) AS 'PYbaskets'
+INTO #online_sales
+FROM dbo.SalesLineItemFact
+WHERE CheckoutTypeDimensionID = 3
+AND DateDimensionID BETWEEN CONVERT(INT, CONVERT(CHAR(8), @lastMonth, 112)) AND CONVERT(INT,CONVERT(CHAR(8), @lastWeek, 112))
+GROUP BY
+LocationDimensionID
+
+IF OBJECT_ID('tempdb..#LYonline_sales') IS NOT NULL
+DROP TABLE #LYonline_sales
+SELECT os.LocationDimensionID,
+os.PYsales,
+os.PYbaskets,
+SUM(SaleAmount) AS 'LYsales',
+COUNT(DISTINCT(BasketKey)) AS 'LYbaskets'
+INTO #LYonline_sales
+FROM dbo.SalesLineItemFact s
+JOIN #online_sales os
+ON os.LocationDimensionID = s.LocationDimensionID
+WHERE CheckoutTypeDimensionID = 3
+AND DateDimensionID BETWEEN CONVERT(INT, CONVERT(CHAR(8), DATEADD(YEAR,-1,@lastMonth), 112)) AND CONVERT(INT,CONVERT(CHAR(8), DATEADD(YEAR, -1, @lastWeek), 112))
+GROUP BY
+os.LocationDimensionID,
+os.PYsales,
+os.PYbaskets
+
+IF OBJECT_ID('tempdb..#private_label') IS NOT NULL
+DROP TABLE #private_label
+SELECT s.LocationDimensionID,
+SUM(SaleAmount) AS 'PYsales',
+COUNT(DISTINCT(BasketKey)) AS 'PYbaskets'
+INTO #private_label
+FROM dbo.SalesLineItemFact s
+JOIN dbo.StoreItemDimension sid
+ON sid.StoreItemDimensionID = s.StoreItemDimensionID
+WHERE sid.PrivateLabelDescription_Key <> 0
+AND sid.PrivateLabelDescription_Key <> -1
+AND DateDimensionID BETWEEN CONVERT(INT, CONVERT(CHAR(8), @lastMonth, 112)) AND CONVERT(INT,CONVERT(CHAR(8), @lastWeek, 112))
+GROUP BY
+s.LocationDimensionID
+
+IF OBJECT_ID('tempdb..#LYprivate_label') IS NOT NULL
+DROP TABLE #LYprivate_label
+SELECT pl.LocationDimensionID,
+pl.PYsales,
+pl.PYbaskets,
+SUM(SaleAmount) AS 'LYsales',
+COUNT(DISTINCT(BasketKey)) AS 'LYbaskets'
+INTO #LYprivate_label
+FROM dbo.SalesLineItemFact s
+JOIN dbo.StoreItemDimension sid
+ON sid.StoreItemDimensionID = s.StoreItemDimensionID
+JOIN #private_label pl
+ON pl.LocationDimensionID = s.LocationDimensionID
+WHERE sid.PrivateLabelDescription_Key <> 0
+AND sid.PrivateLabelDescription_Key <> -1
+AND DateDimensionID BETWEEN CONVERT(INT, CONVERT(CHAR(8), DATEADD(YEAR,-1,@lastMonth), 112)) AND CONVERT(INT,CONVERT(CHAR(8), DATEADD(YEAR, -1, @lastWeek), 112))
+GROUP BY
+pl.LocationDimensionID,
+pl.PYsales,
+pl.PYbaskets
+
+SELECT lpl.LocationDimensionID,
+(lpl.LYsales - lpl.PYsales)/lpl.LYsales AS 'privatelabel_sales_perc',
+(lpl.PYbaskets*1.0 - lpl.LYbaskets)/lpl.LYbaskets AS 'privatelabel_baskets_perc',
+(los.LYsales - los.PYsales)/los.LYsales AS 'online_sales_perc',
+(los.PYbaskets*1.0 - los.LYbaskets)/los.LYbaskets AS 'online_baskets_perc'
+FROM #LYonline_sales los
+JOIN #LYprivate_label lpl
+ON lpl.LocationDimensionID = los.LocationDimensionID
+GROUP BY
+lpl.LocationDimensionID,
+lpl.LYsales,
+lpl.LYbaskets,
+lpl.PYsales,
+lpl.PYbaskets,
+los.LYsales,
+los.LYbaskets,
+los.PYsales,
+los.PYbaskets
+HAVING los.LYsales > 0
+AND los.LYbaskets > 0
+--ORDER BY lpl.LocationDimensionID

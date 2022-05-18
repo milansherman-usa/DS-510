@@ -1,0 +1,21 @@
+﻿IF OBJECT_ID('subcategory_cpr') IS NOT NULL
+DROP TABLE subcategory_cpr
+
+CREATE TABLE T_DATASCIENCE.dbo.subcategory_cpr (
+	change_point			 VARCHAR(14),
+	nielsenCatSubcat	     VARCHAR(250),
+	nielsenSubcategory_Key	 INTEGER,
+	week					 DATE,
+	global_effect			 DECIMAL(20,19),
+	level_effect			 DECIMAL(20,19),
+	TotalSales				 DECIMAL(20,4),
+	SalesGroup			     INTEGER,
+	datetime		         DATETIME
+)
+
+SELECT *
+FROM subcategory_cpr
+
+DELETE
+FROM dbo.subcategory_cpr
+WHERE Timestamp = '2019-07-16 16:05:21'

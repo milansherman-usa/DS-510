@@ -1,0 +1,17 @@
+﻿DECLARE @lastWeekEnd DATE = (SELECT MAX(FYWeekEndingDate)
+								FROM dbo.DateDimension
+								WHERE FYWeekEndingDate < GETDATE())
+								
+SELECT DISTINCT(s.CustomerDimensionID),
+		LastName,
+		FirstName,
+		Description,
+		Category
+FROM SalesLineItemFact AS s
+JOIN StoreItemDimension AS sid ON s.UPC = sid.UPC
+JOIN DateDimension AS d ON s.DateDimensionID = d.DateDimensionID
+JOIN CustomerDimension AS c ON s.CustomerDimensionID = c.CustomerDimensionID
+WHERE Category = 'Beverage-Soft Drinks' AND Description NOT LIKE '%Pepsi%' AND s.CustomerDimensionID <> '1'
+	AND s.DateDimensionID BETWEEN CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, -30, @lastweekend),112)) AND CONVERT(INT, CONVERT(CHAR(8),@lastweekend,112)) 
+GROUP BY s.CustomerDimensionID, LastName, FirstName, Category, Description
+ORDER BY CustomerDimensionID

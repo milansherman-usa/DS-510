@@ -1,0 +1,69 @@
+﻿/* ==========================================================
+Get 104 wks sales for each change point identified in sample
+============================================================= */
+
+-- Split category and subcategory into different fields
+IF OBJECT_ID('tempdb..#CPRDates') IS NOT NULL
+	DROP TABLE #CPRDates
+SELECT SUBSTRING(nielsenCatSubcat, 1, CHARINDEX('-', nielsenCatSubcat) - 1) AS NielsenCategory,
+	   SUBSTRING(nielsenCatSubcat, CHARINDEX('-', nielsenCatSubcat) + 1, LEN(nielsenCatSubcat)) AS NielsenSubcategory,
+	   week AS FYWeekEndingDate
+INTO #CPRDates
+FROM T_DATASCIENCE.dbo.subcategory_cpr sub
+
+-- Get sales and PY sales for 2 years prior to date of change point
+IF OBJECT_ID('tempdb..#WeeklyCPRSales') IS NOT NULL
+	DROP TABLE #WeeklyCPRSales
+SELECT d.FYWeekEndingDate,
+	   d.FYWeekNumber,
+	   d.FYYearNumber,
+	   CASE WHEN d.FYWeekEndingDate BETWEEN DATEADD(WEEK, -51, c.FYWeekEndingDate) AND DATEADD(WEEK, -8, c.FYWeekEndingDate)
+			THEN 44
+			WHEN d.FYWeekEndingDate >= DATEADD(WEEK, -7, c.FYWeekEndingDate)
+			THEN 8
+			ELSE 0
+	   END AS WeekRange, -- Identifying whether week is within previous/current/neither time period
+	   si.NielsenCategory,
+	   si.NielsenSubcategory,
+	   SUM(sd.SaleAmount) AS Sales
+INTO #WeeklyCPRSales
+FROM dbo.SalesDailyItemFact sd
+	JOIN dbo.StoreItemDimension si
+		ON si.StoreItemDimensionID = sd.StoreItemDimensionID
+	JOIN dbo.DateDimension d
+		ON d.DateDimensionID = sd.DateDimensionID
+	JOIN dbo.LocationDimension l
+		ON l.LocationDimensionID = sd.LocationDimensionID
+	JOIN #CPRDates c
+		ON c.NielsenCategory = si.NielsenCategory
+		AND c.NielsenSubcategory = si.NielsenSubcategory
+WHERE l.New_Key = 1
+	AND l.Closed_Key = 3
+	AND d.FYWeekEndingDate BETWEEN DATEADD(WEEK, -156, c.FYWeekEndingDate) AND c.FYWeekEndingDate
+GROUP BY d.FYWeekEndingDate,
+		 d.FYWeekNumber,
+		 d.FYYearNumber,
+		 CASE WHEN d.FYWeekEndingDate BETWEEN DATEADD(WEEK, -51, c.FYWeekEndingDate) AND DATEADD(WEEK, -8, c.FYWeekEndingDate)
+			  THEN 44
+			  WHEN d.FYWeekEndingDate >= DATEADD(WEEK, -7, c.FYWeekEndingDate)
+			  THEN 8
+			  ELSE 0
+	     END,
+		 si.NielsenCategory,
+		 si.NielsenSubcategory
+
+-- CY and PY sales
+SELECT cy.FYWeekEndingDate,
+	   cy.FYWeekNumber,
+	   cy.FYYearNumber,
+	   cy.WeekRange,
+	   cy.NielsenCategory,
+	   cy.NielsenSubcategory,
+	   cy.Sales,
+	   py.Sales AS PYSales
+FROM #WeeklyCPRSales cy
+	JOIN #WeeklyCPRSales py
+		ON py.FYWeekEndingDate = DATEADD(WEEK, -52, cy.FYWeekEndingDate)
+		AND py.NielsenCategory = cy.NielsenCategory
+		AND py.NielsenSubcategory = cy.NielsenSubcategory
+ORDER BY cy.NielsenSubcategory, cy.FYWeekEndingDate

@@ -1,0 +1,49 @@
+﻿
+IF OBJECT_ID('tempdb..#mega') IS NOT NULL 
+DROP TABLE #mega
+IF OBJECT_ID('tempdb..#prev') IS NOT NULL 
+DROP TABLE #prev
+
+DECLARE @mai_endDate DATE = (SELECT MAX(DATEADD(DAY, mai_days, mai_begindate))
+							FROM [20181023_AD_Maintenance]
+							WHERE mai_descr LIKE '%Mega Ad' AND (mai_begindate < DATEADD(DAY, -30, GETDATE()) AND mai_begindate > DATEADD(DAY, -60, GETDATE())))
+SELECT (SELECT mai_descr
+		FROM [20181023_AD_Maintenance]
+		WHERE mai_descr LIKE '%Mega Ad' AND (mai_begindate < DATEADD(DAY, -30, GETDATE()) AND mai_begindate > DATEADD(DAY, -60, GETDATE()))) AS 'mega_ad',
+		igr_igrid,
+		igr_descrip,
+		SUM(SaleAmount) AS 'mega_ad_sales'
+INTO #mega
+FROM [20181023_AD_ItemGroup] AS i
+JOIN [20181023_AD_Maintenance] AS m ON m.mai_maiid = i.igr_maiid
+JOIN [20181023_AD_Item] AS it ON i.igr_igrid = it.ite_igrid
+JOIN [P_POS_MART].dbo.SalesDailyItemFact AS s ON it.ite_upc = s.UPC
+JOIN [P_POS_MART].dbo.DateDimension AS d on s.DateDimensionID = d.DateDimensionID
+WHERE s.DateDimensionID BETWEEN CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, -30, @mai_endDate),112)) AND CONVERT(INT, CONVERT(CHAR(8),@mai_endDate,112)) 
+GROUP BY igr_igrid, igr_descrip
+ORDER BY igr_descrip
+							
+SELECT (SELECT mai_descr
+		FROM [20181023_AD_Maintenance]
+		WHERE mai_descr LIKE '%Mega Ad' AND (mai_begindate < DATEADD(DAY, -30, GETDATE()) AND mai_begindate > DATEADD(DAY, -60, GETDATE()))) AS 'mega_ad',
+		igr_igrid,
+		igr_descrip,
+		SUM(SaleAmount) AS 'prev_30day_sales'
+INTO #prev
+FROM [20181023_AD_ItemGroup] AS i
+JOIN [20181023_AD_Maintenance] AS m ON m.mai_maiid = i.igr_maiid
+JOIN [20181023_AD_Item] AS it ON i.igr_igrid = it.ite_igrid
+JOIN [P_POS_MART].dbo.SalesDailyItemFact AS s ON it.ite_upc = s.UPC
+JOIN [P_POS_MART].dbo.DateDimension AS d on s.DateDimensionID = d.DateDimensionID
+WHERE s.DateDimensionID BETWEEN CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, -60, @mai_endDate),112)) AND CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, -30, @mai_endDate),112)) 
+GROUP BY igr_igrid, igr_descrip
+ORDER BY igr_descrip
+
+SELECT m.mega_ad, m.igr_igrid, m.igr_descrip, mega_ad_sales, prev_30day_sa,
+	(mega_ad_sales*1.0 - prev_30day_sales)/prev_30day_sales *100 AS 'perc_lift'
+FROM #mega AS m
+JOIN #prev AS p ON m.igr_igrid = p.igr_igrid
+GROUP BY m.mega_ad, m.igr_igrid, m.igr_descrip, mega_ad_sales, prev_30day_sales
+HAVING prev_30day_sales > 0 AND mega_ad_sales > 0
+ORDER BY 'perc_lift' DESC
+

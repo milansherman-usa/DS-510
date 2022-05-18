@@ -1,0 +1,69 @@
+﻿IF OBJECT_ID('tempdb..#private_cy') IS NOT NULL
+DROP TABLE #private_cy
+
+IF OBJECT_ID('tempdb..#private_py') IS NOT NULL
+DROP TABLE #private_py
+
+IF OBJECT_ID('tempdb..#online_cy') IS NOT NULL
+DROP TABLE #online_cy
+
+IF OBJECT_ID('tempdb..#online_py') IS NOT NULL
+DROP TABLE #online_py
+
+DECLARE @lastmonthEnd DATE = (SELECT MAX(FYMonthEndingDate)
+							FROM dbo.DateDimension
+							WHERE FYMonthEndingDate < GETDATE())
+DECLARE @twomonthsEnd DATE = (SELECT MAX(FYMonthEndingDate)
+							FROM dbo.DateDimension
+							WHERE FYMonthEndingDate < @lastmonthEnd)
+
+SELECT LocationDimensionID,
+		SUM(SaleAmount) AS 'private_label_sales_cy'
+INTO #private_cy
+FROM SalesDailyItemFact si
+JOIN StoreItemDimension AS sid ON si.StoreItemDimensionID = sid.StoreItemDimensionID
+WHERE DateDimensionID BETWEEN CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, 1, @twomonthsEnd), 112)) AND CONVERT(INT, CONVERT(CHAR(8), @lastmonthEnd, 112))
+	AND PrivateLabel_Key = '0'
+GROUP BY LocationDimensionID
+
+SELECT LocationDimensionID,
+		SUM(SaleAmount) AS 'private_label_sales_py'
+INTO #private_py
+FROM SalesDailyItemFact si
+JOIN StoreItemDimension AS sid ON si.StoreItemDimensionID = sid.StoreItemDimensionID
+WHERE DateDimensionID BETWEEN CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, -364, @twomonthsEnd), 112)) AND CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, -365, @lastmonthEnd), 112))
+	AND PrivateLabel_Key = '0'
+GROUP BY LocationDimensionID
+
+SELECT LocationDimensionID,
+		SUM(SaleAmount) AS 'online_sales_cy'
+INTO #online_cy
+FROM SalesLineItemFact 
+WHERE DateDimensionID BETWEEN CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, 1, @twomonthsEnd), 112)) AND CONVERT(INT, CONVERT(CHAR(8), @lastmonthEnd, 112))
+	AND CheckoutTypeDimensionID = '3'
+GROUP BY LocationDimensionID
+
+SELECT LocationDimensionID,
+		SUM(SaleAmount) AS 'online_sales_py'
+INTO #online_py
+FROM SalesLineItemFact 
+WHERE DateDimensionID BETWEEN CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, -364, @twomonthsEnd), 112)) AND CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, -365, @lastmonthEnd), 112))
+	AND CheckoutTypeDimensionID = '3'
+GROUP BY LocationDimensionID
+
+SELECT pcy.LocationDimensionID,
+		private_label_sales_py,
+		private_label_sales_cy,
+		(private_label_sales_cy*1.0 - private_label_sales_py)/private_label_sales_py*100 AS 'pl_percent_change',
+		online_sales_py,
+		online_sales_cy,
+		(online_sales_cy*1.0 - online_sales_py)/online_sales_py*100 AS 'online_percent_change'
+FROM #private_cy AS pcy
+JOIN #private_py AS ppy ON pcy.LocationDimensionID = ppy.LocationDimensionID
+JOIN #online_py AS opy ON pcy.LocationDimensionID = opy.LocationDimensionID
+JOIN #online_cy AS ocy ON pcy.LocationDimensionID = ocy.LocationDimensionID
+GROUP BY pcy.LocationDimensionID,
+		private_label_sales_py,
+		private_label_sales_cy,
+		online_sales_py,
+		online_sales_cy

@@ -1,0 +1,41 @@
+﻿IF OBJECT_ID('tempdb..#grocerysales') IS NOT NULL 
+DROP TABLE #grocerysales
+IF OBJECT_ID('tempdb..#avgsales') IS NOT NULL 
+DROP TABLE #avgsales
+
+DECLARE @lastMonthEnd DATE = (SELECT MAX(FYMonthEndingDate)
+								FROM dbo.DateDimensionBase
+								WHERE FYMonthEndingDate < GETDATE())
+
+DECLARE @twoMonthshEnd DATE = (SELECT MAX(FYMonthEndingDate)
+								FROM dbo.DateDimensionBase
+								WHERE FYMonthEndingDate < @lastMonthEnd)
+
+SELECT  
+		s.CustomerDimensionID,
+		SUM(SaleAmount) AS 'sales',
+		d.FYMonthEndingDate
+INTO #grocerysales
+FROM SalesLineItemFact AS s
+JOIN POSDepartmentDimension AS p ON p.POSDepartmentDimensionID = s.POSDepartmentDimensionID
+JOIN DateDimensionBase AS d ON d.DateDimensionID = s.DateDimensionID
+WHERE p.MajorDepartmentDescription = 'General' AND s.DateDimensionID BETWEEN CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, 1, @twoMonthshEnd), 112)) AND CONVERT(INT, CONVERT(CHAR(8), @lastMonthEnd, 112)) AND s.CustomerDimensionID <>1
+GROUP BY s.CustomerDimensionID, FYMonthEndingDate
+
+
+SELECT  FYMonthEndingDate,
+		AVG(sales) AS avg_sales
+INTO #avgsales
+FROM #grocerysales
+GROUP BY FYMonthEndingDate
+
+
+SELECT g.CustomerDimensionID,
+	   g.sales,
+	   a.avg_sales
+FROM #grocerysales as g
+JOIN #avgsales as a ON a.FYMonthEndingDate = g.FYMonthEndingDate
+WHERE g.sales > a.avg_sales
+GROUP BY CustomerDimensionID, sales, avg_sales
+ORDER BY sales
+

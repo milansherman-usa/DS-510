@@ -1,0 +1,64 @@
+﻿IF OBJECT_ID('tempdb..#weekone') IS NOT NULL 
+DROP TABLE #weekone
+IF OBJECT_ID('tempdb..#weektwo') IS NOT NULL 
+DROP TABLE #weektwo
+IF OBJECT_ID('tempdb..#weekthree') IS NOT NULL 
+DROP TABLE #weekthree
+IF OBJECT_ID('tempdb..#weekfour') IS NOT NULL 
+DROP TABLE #weekfour
+
+DECLARE @lastweekend DATE = (SELECT MAX(FYWeekEndingDate)
+								FROM dbo.DateDimensionBase
+								WHERE FYWeekEndingDate < GETDATE())
+DECLARE @twoweeksEnd DATE = DATEADD(WEEK, -1, @lastweekend)
+DECLARE @threeweeksEnd DATE = DATEADD(WEEK, -2, @lastweekend)
+DECLARE @fourweeksEnd DATE = DATEADD(WEEK, -3, @lastweekend)
+
+SELECT 
+	   FactsSegmentDimensionID,
+	   SUM(SaleAmount) AS sales,
+	   COUNT(DISTINCT(BasketKey)) AS number_baskets
+INTO #weekone
+FROM SalesLineItemFact
+WHERE DateDimensionID BETWEEN CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, -6, @lastweekend),112)) AND CONVERT(INT, CONVERT(CHAR(8),@lastweekend,112))
+GROUP BY FactsSegmentDimensionID
+
+
+SELECT 
+	   FactsSegmentDimensionID,
+	   SUM(SaleAmount) AS sales,
+	   COUNT(DISTINCT(BasketKey)) AS number_baskets
+INTO #weektwo
+FROM SalesLineItemFact
+WHERE DateDimensionID BETWEEN CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, -6, @twoweeksEnd),112)) AND CONVERT(INT, CONVERT(CHAR(8),@twoweeksEnd,112))
+GROUP BY FactsSegmentDimensionID
+
+
+SELECT 
+	   FactsSegmentDimensionID,
+	   SUM(SaleAmount) AS sales,
+	   COUNT(DISTINCT(BasketKey)) AS number_baskets
+INTO #weekthree
+FROM SalesLineItemFact
+WHERE DateDimensionID BETWEEN CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, -6, @threeweeksEnd),112)) AND CONVERT(INT, CONVERT(CHAR(8),@threeweeksEnd,112))
+GROUP BY FactsSegmentDimensionID
+
+
+SELECT 
+	   FactsSegmentDimensionID,
+	   SUM(SaleAmount) AS sales,
+	   COUNT(DISTINCT(BasketKey)) AS number_baskets
+INTO #weekfour
+FROM SalesLineItemFact
+WHERE DateDimensionID BETWEEN CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, -6, @fourweeksEnd),112)) AND CONVERT(INT, CONVERT(CHAR(8),@fourweeksEnd,112))
+GROUP BY FactsSegmentDimensionID
+
+SELECT  w1.FactsSegmentDimensionID AS FactsSegment,
+		(MAX(w1.number_baskets) + MAX(w2.number_baskets) + MAX(w3.number_baskets) + MAX(w4.number_baskets))/4. AS avg_num_baskets_perweek,
+		(MAX(w1.sales) + MAX(w2.sales) + MAX(w3.sales) + MAX(w4.sales))/4. AS avg_sales_perweek
+FROM #weekone AS w1
+JOIN #weektwo AS w2 ON w2.FactsSegmentDimensionID = w1.FactsSegmentDimensionID
+JOIN #weekthree AS w3 ON w3.FactsSegmentDimensionID = w1.FactsSegmentDimensionID
+JOIN #weekfour AS w4 ON w4.FactsSegmentDimensionID = w1.FactsSegmentDimensionID
+GROUP BY w1.FactsSegmentDimensionID
+ORDER BY w1.FactsSegmentDimensionID

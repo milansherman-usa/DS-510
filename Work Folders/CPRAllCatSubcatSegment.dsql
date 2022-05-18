@@ -1,0 +1,131 @@
+﻿--prep_query
+    DECLARE @EDate DATE = (SELECT MAX(FYWeekEndingDate)
+    FROM dbo.DateDimension
+    WHERE FYWeekEndingDate < GETDATE())
+    DECLARE @BDate DATE = (SELECT MIN(ActualDate)
+    FROM dbo.DateDimension
+    WHERE FYWeekEndingDate = DATEADD(WEEK, -51, @EDate))
+    DECLARE @PriorBDate DATE = DATEADD(WEEK, -52, @BDate)
+    
+    IF OBJECT_ID('tempdb..#Dates') IS NOT NULL
+    DROP TABLE #Dates
+    SELECT DISTINCT FYWeekEndingDate,
+    DATEADD(DAY, -1, FYWeekEndingDate) AS WeekEndingDate,
+    FYYearNumber,
+    FYWeekNumber
+    INTO #Dates
+    FROM dbo.DateDimension
+    WHERE ActualDate BETWEEN @PriorBDate AND @EDate
+    
+	--Sales for all non-seasonal items
+   IF OBJECT_ID('tempdb..#Sales') IS NOT NULL
+    DROP TABLE #Sales
+    SELECT i.NielsenCategory AS nielsenCategory,
+    i.NielsenSubcategory AS nielsenSubcategory,
+    i.NielsenCategory_Key AS nielsenCategory_Key,
+    i.NielsenSubcategory_Key AS nielsenSubcategory_Key,
+	f.FactsSegment,
+	t.TruPriceSegment,
+	d.FYWeekEndingDate AS week,
+    d.FYWeekNumber AS weekNum,
+    d.FYYearNumber AS yearNum,
+    SUM(s.SaleAmount) AS 'sales'
+	INTO #Sales
+    FROM dbo.SalesLineItemFact s
+    JOIN dbo.DateDimension d
+    ON d.DateDimensionID = s.DateDimensionID
+    JOIN dbo.LocationDimension l
+    ON l.LocationDimensionID = s.LocationDimensionID
+    JOIN dbo.POSDepartmentDimension dep
+    ON dep.POSDepartmentDimensionID = s.POSDepartmentDimensionID
+    JOIN dbo.StoreItemDimension i
+    ON i.StoreItemDimensionID = s.StoreItemDimensionID
+	JOIN dbo.FactsSegmentDimension f
+	ON f.FactsSegmentDimensionID =
+		CASE 
+		WHEN  s.DateDimensionID > 20170930
+		THEN  s.FactsSegmentDimensionID
+		ELSE  s.EYC_FactsSegmentDimensionID
+		END 
+	JOIN dbo.TruPriceSegmentDimension t
+	ON t.TruPriceSegmentDimensionID = 
+		CASE 
+		WHEN  s.DateDimensionID > 20170930
+		THEN  s.TruPriceSegmentDimensionID
+		ELSE  s.EYC_TruPriceSegmentDimensionID
+		END 
+    JOIN #Dates da
+    ON da.FYWeekEndingDate = d.FYWeekEndingDate
+    WHERE l.New_Key = 1
+    AND i.Category_Key NOT IN (0, 156, 241, 270, 269, 254, 85)
+    AND i.SubCategory_Key NOT IN (1028, 619, 1420, 716, 481, 482, 1712, 566)
+    AND i.NielsenCategory_Key > -1
+    AND i.NielsenSubcategory NOT LIKE '% SEASONAL%'
+    AND i.NielsenCategory <> 'SEASONAL'
+    AND i.Description NOT LIKE '%seasonal%'
+	AND 1 <> 
+		CASE 
+		WHEN  s.DateDimensionID > 20170930
+		THEN  s.FactsSegmentDimensionID
+		ELSE  s.EYC_FactsSegmentDimensionID
+		END 
+	AND -1 <> 
+		CASE 
+		WHEN  s.DateDimensionID > 20170930
+		THEN  s.TruPriceSegmentDimensionID
+		ELSE  s.EYC_TruPriceSegmentDimensionID
+		END 
+    GROUP BY i.NielsenCategory,
+    i.NielsenSubcategory,
+    i.NielsenCategory_Key,
+    i.NielsenSubcategory_Key,
+	f.FactsSegment,
+	t.TruPriceSegment,
+    d.FYWeekEndingDate,
+    d.FYWeekNumber,
+    d.FYYearNumber
+    
+    --Calculating prior year sales
+    IF OBJECT_ID('tempdb..#SalesComp') IS NOT NULL
+    DROP TABLE #SalesComp;
+    SELECT s1.nielsenCategory,
+    s1.nielsenSubcategory,
+    s1.nielsenCategory_Key,
+    s1.nielsenSubcategory_Key,
+	s1.FactsSegment,
+	s1.TruPriceSegment,
+    s1.week,
+    SUM(s1.sales) AS sales,
+    SUM(s2.sales) AS PYsales,
+    ISNULL((SUM(s1.sales) - SUM(s2.sales)) / NULLIF(SUM(s2.sales), 0), 0) AS PYchg
+    INTO #SalesComp
+    FROM #Sales s1
+    JOIN #Sales s2
+    ON s2.nielsenSubcategory_Key = s1.nielsenSubcategory_Key
+    AND s2.nielsenCategory_Key = s1.nielsenCategory_Key
+    AND s2.weekNum = s1.weekNum
+    AND s2.yearNum = s1.yearNum - 1
+	AND s2.FactsSegment = s1.FactsSegment
+	AND s2.TruPriceSegment = s1.TruPriceSegment
+    GROUP BY s1.nielsenCategory,
+    s1.nielsenSubcategory,
+    s1.nielsenCategory_Key,
+    s1.nielsenSubcategory_Key,
+	s1.FactsSegment,
+	s1.TruPriceSegment,
+    s1.week
+    
+    --final_query
+    SELECT s.nielsenCategory,
+    s.nielsenCategory_Key,
+    s.nielsenSubcategory,
+    s.nielsenSubcategory_Key,
+    s.nielsenCategory + '-' + s.nielsenSubcategory AS nielsenCatSubcat,
+    s.nielsenCategory + '-' + s.nielsenSubcategory + '-' + s.FactsSegment + '-' + s.TruPriceSegment AS nielsenCatSubcatSegment,
+	s.FactsSegment,
+	s.TruPriceSegment,
+	s.week,
+    s.sales,
+    s.PYsales,
+    s.PYchg
+    FROM #SalesComp s

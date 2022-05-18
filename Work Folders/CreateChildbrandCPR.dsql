@@ -1,0 +1,20 @@
+﻿IF OBJECT_ID('childbrand_cpr') IS NOT NULL
+DROP TABLE childbrand_cpr
+
+CREATE TABLE T_DATASCIENCE.dbo.childbrand_cpr (
+	change_point			 VARCHAR(14),
+	nielsenCatSubcat	     VARCHAR(250),
+	nielsenSubcategory_Key	 INTEGER,
+	week					 DATE,
+	global_effect			 DECIMAL(12,11),
+	level_effect			 DECIMAL(12,11),
+	TotalSales				 DECIMAL(20,4),
+	SalesGroup			     INTEGER,
+	datetime		         DATETIME
+)
+
+SELECT *
+FROM childbrand_cpr
+
+DELETE
+FROM dbo.childbrand_cpr

@@ -1,0 +1,25 @@
+﻿IF OBJECT_ID('tempdb..#items') IS NOT NULL
+DROP TABLE #items
+
+DECLARE @lastweekEnd DATE = (SELECT MAX(FYWeekEndingDate)
+							FROM dbo.DateDimension
+							WHERE FYWeekEndingDate < GETDATE())
+
+SELECT CustomerDimensionID,
+		SUM(Quantity) AS 'items'
+INTO #items
+FROM SalesLineItemFact
+WHERE DateDimensionID BETWEEN CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, -30, @lastweekEnd), 112)) AND CONVERT(INT, CONVERT(CHAR(8), @lastweekEnd, 112))
+	AND CustomerDimensionID <> 1
+	AND POSDepartmentDimensionID = 1 
+GROUP BY CustomerDimensionID
+
+SELECT AVG(items) 
+FROM #items
+
+SELECT CustomerDimensionID,
+		items
+FROM #items
+WHERE items > (SELECT AVG(items) FROM #items)
+GROUP BY CustomerDimensionID, items
+ORDER BY items DESC

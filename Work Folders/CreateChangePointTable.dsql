@@ -1,0 +1,21 @@
+﻿IF OBJECT_ID('historical_change_points_8wk') IS NOT NULL
+DROP TABLE historical_change_points_8wk
+
+CREATE TABLE T_DATASCIENCE.dbo.historical_change_points_8wk (
+	nielsenCatSubcat	     VARCHAR(250),
+	change_point			 VARCHAR(14),
+	sales					 DECIMAL(20,2),
+	PYsales					 DECIMAL(20,2),
+	PYchg					 DECIMAL(20,4),
+	norm_percent	         DECIMAL(20,4),
+	effect_size_yoy			 DECIMAL(20,4),
+	norm_effect		         DECIMAL(20,4),
+	sig_score                DECIMAL(20,4)
+)
+
+SELECT *
+FROM historical_change_points_8wk
+
+DELETE
+FROM dbo.historical_change_points_8wk
+WHERE Timestamp = '2019-07-16 16:05:21'

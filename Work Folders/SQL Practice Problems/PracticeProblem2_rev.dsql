@@ -1,0 +1,33 @@
+﻿IF OBJECT_ID('tempdb..#SalesAndBaskets') IS NOT NULL
+DROP TABLE #SalesAndBaskets
+
+
+DECLARE @lastmonthEnd DATE = (SELECT MAX(FYMonthEndingDate)
+							FROM dbo.DateDimension
+							WHERE FYMonthEndingDate < GETDATE())
+DECLARE @twomonthEnd  DATE = (SELECT MAX(FYMonthEndingDate)
+								FROM dbo.DateDimension
+								WHERE FYMonthEndingdate < @lastmonthEnd)
+
+SELECT FactsWeekSegment,
+		FYWeekEndingDate,
+		b.CustomerDimensionID,
+		SUM(SaleAmount) AS 'sales',
+		COUNT(Distinct(BasketKey)) AS 'baskets'
+INTO #SalesAndBaskets
+FROM SalesBasketFact AS b
+JOIN CustomerDimension AS cd ON b.CustomerDimensionID = cd.CustomerDimensionID
+JOIN DateDimension AS d  ON b.DateDimensionID = d.DateDimensionID
+WHERE b.DateDimensionID BETWEEN CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, 1, @twomonthEnd),112)) AND CONVERT(INT, CONVERT(CHAR(8), @lastmonthEnd,112))
+	AND b.CustomerDimensionID <> 1
+GROUP BY FactsWeekSegment,
+			FYWeekEndingDate,
+			b.CustomerDimensionID
+
+SELECT FactsWeekSegment,
+		FYWeekEndingDate,
+		AVG(sales) AS 'avg_sales',
+		AVG(baskets) AS 'avg_baskets'
+FROM #SalesAndBaskets
+GROUP BY FactsWeekSegment,
+		FYWeekEndingDate

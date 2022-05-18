@@ -1,0 +1,35 @@
+﻿DROP TABLE #cstore
+--DROP TABLE #foodstore
+
+DECLARE @lastWeekEnd DATE = (SELECT MAX(FYMonthEndingDate)
+								FROM dbo.DateDimension
+								WHERE FYMonthEndingDate < GETDATE())
+
+SELECT COUNT(DISTINCT(s.CustomerDimensionID)) AS 'FrequentStore',
+	   (SELECT COUNT(DISTINCT(s.CustomerDimensionID))
+		FROM SalesLineItemFact AS s
+		JOIN CustomerDimension AS c ON (s.CustomerDimensionID = c.CustomerDimensionID AND s.LocationDimensionID IN (
+			SELECT LocationDimensionID
+			FROM LocationDimension
+			WHERE LocationTypeID = 5)) 
+		WHERE DateDimensionID BETWEEN CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, -7, @lastweekend),112)) AND CONVERT(INT, CONVERT(CHAR(8),@lastweekend,112))  AND c.FrequentStore NOT IN (
+			SELECT StoreNumber
+			FROM LocationDimension
+			WHERE LocationTypeID = 5)) AS 'CStore'
+INTO #cstore
+FROM SalesLineItemFact AS s
+JOIN CustomerDimension AS c ON (s.CustomerDimensionID = c.CustomerDimensionID AND s.LocationDimensionID IN (
+	SELECT LocationDimensionID
+	FROM LocationDimension
+	WHERE LocationTypeID = 5))
+WHERE DateDimensionID BETWEEN CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, -7, @lastweekend),112)) AND CONVERT(INT, CONVERT(CHAR(8),@lastweekend,112))  AND c.FrequentStore IN (
+		SELECT StoreNumber
+		FROM LocationDimension
+		WHERE LocationTypeID = 5)
+
+SELECT FrequentStore*1.0/(FrequentStore + CStore) AS 'perc_freq_store',
+	  CStore*1.0/(FrequentStore + CStore) AS 'perc_no_freq_store'
+FROM #cstore
+
+
+

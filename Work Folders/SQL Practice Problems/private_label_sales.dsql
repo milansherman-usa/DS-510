@@ -1,0 +1,52 @@
+﻿IF OBJECT_ID('tempdb..#PY') IS NOT NULL 
+DROP TABLE #PY
+
+IF OBJECT_ID('tempdb..#CY') IS NOT NULL 
+DROP TABLE #CY
+
+DECLARE @lastMonthsEnd DATE = (SELECT MAX(FYMonthEndingDate)
+								FROM dbo.DateDimension
+								WHERE FYMonthEndingDate < GETDATE())
+
+DECLARE @twoMonthsEnd DATE = (SELECT MAX(FYMonthEndingDate)
+								FROM dbo.DateDimension
+								WHERE FYMonthEndingDate < @lastMonthsEnd)
+
+								SELECT  LocationDimensionID,
+		SUM(SaleAmount) AS 'PY_private_label_sales',
+		COUNT(DISTINCT(BasketKey)) AS 'PY_Number_of_Baskets'
+INTO #PY
+FROM SalesLineItemFact AS s
+JOIN StoreItemDimension AS sid on s.UPC = sid.UPC
+WHERE sid.PrivateLabel_Key = 0 AND  DateDimensionID BETWEEN CONVERT(INT, CONVERT(CHAR(8), DATEADD(MONTH, -12, @twoMonthsend),112)) AND CONVERT(INT, CONVERT(CHAR(8), DATEADD(MONTH, -12, @lastMonthsEnd),112))
+GROUP BY LocationDimensionID
+
+
+
+SELECT  LocationDimensionID,
+		SUM(SaleAmount) AS 'CY_private_label_sales',
+		COUNT(DISTINCT(BasketKey)) AS 'CY_Number_of_Baskets' 
+		
+INTO #CY
+FROM SalesLineItemFact AS s
+JOIN StoreItemDimension AS sid on s.UPC = sid.UPC
+WHERE sid.PrivateLabel_Key = 0 AND  DateDimensionID BETWEEN CONVERT(INT, CONVERT(CHAR(8), @twoMonthsEnd,112)) AND CONVERT(INT, CONVERT(CHAR(8),@lastMonthsEnd,112))
+GROUP BY LocationDimensionID
+
+SELECT p.LocationDimensionID,
+		PY_private_label_sales,
+		CY_private_label_sales,
+		(CY_private_label_sales/1.0 - PY_private_label_sales)/PY_private_label_sales*100 AS 'perc_sales_increase',
+		PY_Number_of_baskets,
+		CY_Number_of_Baskets,
+		(CY_Number_of_Baskets/1.0 - PY_Number_of_Baskets)/PY_Number_of_Baskets*100 AS 'perc_basket_increase'
+FROM #PY AS p
+JOIN #CY AS c on p.LocationDimensionID = c.LocationDimensionID
+GROUP BY p.LocationDimensionID,
+		PY_private_label_sales,
+		PY_Number_of_baskets,
+		CY_private_label_sales,
+		CY_Number_of_Baskets
+
+
+

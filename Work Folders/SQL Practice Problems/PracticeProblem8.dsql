@@ -1,0 +1,81 @@
+﻿IF OBJECT_ID('tempdb..#totbaskets') IS NOT NULL 
+DROP TABLE #totbaskets
+
+IF OBJECT_ID('tempdb..#totitems') IS NOT NULL 
+DROP TABLE #totitems
+
+IF OBJECT_ID('tempdb..#baskets') IS NOT NULL 
+DROP TABLE #baskets
+
+IF OBJECT_ID('tempdb..#num') IS NOT NULL 
+DROP TABLE #num
+
+IF OBJECT_ID('tempdb..#perc') IS NOT NULL
+DROP TABLE #perc
+
+DECLARE @lastWeekEnd DATE = (SELECT MAX(FYWeekEndingDate)
+								FROM dbo.DateDimension
+								WHERE FYWeekEndingDate < GETDATE())
+
+--Determine the total number of baskets purchased by Facts segment
+SELECT CustomerDimensionID,
+	COUNT(DISTINCT(BasketKey)) AS 'total_baskets' 
+	--INTO #totbaskets
+	FROM SalesBasketFact AS s 
+	JOIN DateDimension AS d ON s.DateDimensionID = d.DateDimensionID
+	JOIN LocationDimension AS l ON s.LocationDimensionID = s.LocationDimensionID
+	WHERE s.DateDimensionID BETWEEN CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, -60, @lastweekend),112)) AND CONVERT(INT, CONVERT(CHAR(8),@lastweekend,112)) 
+	AND s.CustomerDimensionID <> 1 AND l.LocationTypeID <> 5
+	GROUP BY CustomerDimensionID
+
+--Determine the total number of distinct items purchased by Facts segment
+SELECT CustomerDimensionID,
+	COUNT(DISTINCT(StoreItemDimensionID)) AS 'total_items'
+	INTO #totitems
+	FROM SalesLineItemFact	AS s
+	JOIN LocationDimension AS l ON s.LocationDimensionID = l.LocationDimensionID
+	WHERE s.DateDimensionID BETWEEN CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, -60, @lastweekend),112)) AND CONVERT(INT, CONVERT(CHAR(8),@lastweekend,112)) 
+		AND s.CustomerDimensionID <> 1
+		AND LocationTypeID <> 5
+	GROUP BY CustomerDimensionID
+
+--Determine the number of baskets that each item was in by Facts segment
+--Include total baskets in the results
+SELECT c.FactsWeekSegment,
+	StoreItemDimensionID,
+	COUNT(DISTINCT(BasketKey)) AS 'num_baskets',
+	total_baskets
+--INTO #baskets
+FROM SalesLineItemFact	AS s
+JOIN CustomerDimension AS c ON s.CustomerDimensionID = c.CustomerDimensionID
+JOIN #totbaskets AS b ON s.CustomerDimensionID = b.CustomerDimensionID
+JOIN LocationDimension AS l ON s.LocationDimensionID = l.LocationDimensionID
+WHERE s.DateDimensionID BETWEEN CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, -60, @lastweekend),112)) AND CONVERT(INT, CONVERT(CHAR(8),@lastweekend,112)) 
+	AND s.CustomerDimensionID <> 1 
+	AND l.LocationTypeID <> 5
+GROUP BY c.FactsWeekSegment, StoreItemDimensionID, total_baskets
+
+SELECT FactsWeekSegment, StoreItemDimensionID, num_baskets, total_baskets, num_baskets*1.0/total_baskets*100 AS 'percent_baskets'
+--INTO #perc
+FROM #baskets
+GROUP BY FactsWeekSegment, StoreItemDimensionID, num_baskets, total_baskets
+ORDER BY StoreItemDimensionID
+
+SELECT FactsWeekSegment, COUNT(*),
+	CASE WHEN percent_baskets < 1 THEN 'less_than_1'
+		WHEN percent_baskets > 1 THEN 'greater_than_1'
+		WHEN percent_baskets > 2 THEN 'greater_than_2'
+		WHEN percent_baskets > 3 THEN 'greater_than_3'  END
+		AS 
+INTO #num
+FROM #perc
+GROUP BY FactsWeekSegment
+
+SELECT FactsWeekSegment, less_than_10*1.0/total_items*100 AS 'less_than_10%',
+		greater_than_10*1.0/total_items*100 AS 'greater_than_10%',
+		greater_than_20*1.0/total_items*100 AS 'greater_than_20%',
+		greater_than_30*1.0/total_items*100 AS 'greater_than_30%'
+FROM #num AS n
+JOIN #totitems AS i ON n.FactsWeekSegment = i.FactsWeekSegment
+GROUP BY FactsWeekSegment
+

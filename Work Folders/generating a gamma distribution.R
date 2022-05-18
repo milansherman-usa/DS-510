@@ -1,0 +1,10 @@
+data <- runif(44, 0, 1)
+#plot(data)
+data <- rgamma(data, 9, scale = 1000000)
+summary(data)
+#plot(data)
+
+data <- runif(44, 0, 1)
+data <- rgamma(data, 9, scale = 2000000)
+summary(data)
+#plot(data)

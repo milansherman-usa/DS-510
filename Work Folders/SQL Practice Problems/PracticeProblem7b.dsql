@@ -1,0 +1,66 @@
+﻿IF OBJECT_ID('tempdb..#baskets') IS NOT NULL 
+DROP TABLE #baskets
+
+IF OBJECT_ID('tempdb..#perc') IS NOT NULL 
+DROP TABLE #perc
+
+IF OBJECT_ID('tempdb..#num') IS NOT NULL 
+DROP TABLE #num
+
+DECLARE @lastWeekEnd DATE = (SELECT MAX(FYWeekEndingDate)
+								FROM dbo.DateDimension
+								WHERE FYWeekEndingDate < GETDATE())
+
+SELECT UPC,
+	COUNT(DISTINCT(BasketKey)) AS 'num_baskets',
+	(SELECT COUNT(DISTINCT(BasketKey)) 
+	FROM SalesLineItemFact	AS s
+	JOIN DateDimension AS d ON s.DateDimensionID = d.DateDimensionID
+	JOIN CustomerDimension AS c ON s.CustomerDimensionID = c.CustomerDimensionID
+	WHERE s.DateDimensionID BETWEEN CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, -60, @lastweekend),112)) AND CONVERT(INT, CONVERT(CHAR(8),@lastweekend,112)) 
+		AND s.CustomerDimensionID = '10756705') AS 'total_baskets',
+	(SELECT COUNT(DISTINCT(UPC)) 
+	FROM SalesLineItemFact	AS s
+	JOIN DateDimension AS d ON s.DateDimensionID = d.DateDimensionID
+	JOIN CustomerDimension AS c ON s.CustomerDimensionID = c.CustomerDimensionID
+	WHERE s.DateDimensionID BETWEEN CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, -60, @lastweekend),112)) AND CONVERT(INT, CONVERT(CHAR(8),@lastweekend,112)) 
+		AND s.CustomerDimensionID = '10756705') AS 'total_items'
+INTO #baskets
+FROM SalesLineItemFact	AS s
+JOIN DateDimension AS d ON s.DateDimensionID = d.DateDimensionID
+JOIN CustomerDimension AS c ON s.CustomerDimensionID = c.CustomerDimensionID
+WHERE s.DateDimensionID BETWEEN CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, -60, @lastweekend),112)) AND CONVERT(INT, CONVERT(CHAR(8),@lastweekend,112)) 
+		AND s.CustomerDimensionID = '10756705'
+GROUP BY UPC
+
+SELECT UPC, num_baskets, total_baskets, total_items, num_baskets*1.0/total_baskets*100 AS 'percent_baskets'
+INTO #perc
+FROM #baskets
+GROUP BY UPC, num_baskets, total_baskets, total_items
+
+SELECT (SELECT COUNT(*)
+		FROM #perc
+		WHERE percent_baskets < 10)  AS 'less_than_10',
+		(SELECT COUNT(*)
+		FROM #perc
+		WHERE percent_baskets > 10)  AS 'greater_than_10',
+		(SELECT COUNT(*)
+		FROM #perc
+		WHERE percent_baskets > 20)  AS 'greater_than_20',
+		(SELECT COUNT(*)
+		FROM #perc
+		WHERE percent_baskets > 30)  AS 'greater_than_30',
+		total_baskets,
+		total_items
+INTO #num
+FROM #perc
+GROUP BY total_baskets, total_items
+
+SELECT less_than_10*1.0/total_items*100 AS 'less_than_10%',
+		greater_than_10*1.0/total_items*100 AS 'greater_than_10%',
+		greater_than_20*1.0/total_items*100 AS 'greater_than_20%',
+		greater_than_30*1.0/total_items*100 AS 'greater_than_30%'
+FROM #num
+
+
+

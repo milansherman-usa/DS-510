@@ -1,0 +1,59 @@
+﻿DECLARE @lastWeekEnd DATE = (SELECT MAX(FYWeekEndingDate)
+								FROM dbo.DateDimension
+								WHERE FYWeekEndingDate < GETDATE())
+
+SELECT COUNT(DISTINCT(s.CustomerDimensionID)) AS 'CStore',
+		FactsWeekSubSegment,
+		(SELECT COUNT(DISTINCT(s.CustomerDimensionID))
+		FROM SalesLineItemFact AS s
+		JOIN CustomerDimension AS c ON s.CustomerDimensionID = c.CustomerDimensionID
+		JOIN LocationDimension AS l ON s.LocationDimensionID = l.LocationDimensionID
+		WHERE LocationTypeID = 1 AND
+		DateDimensionID BETWEEN CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, -60, @lastweekend),112)) AND CONVERT(INT, CONVERT(CHAR(8),@lastweekend,112))) AS 'Food_Customers'
+INTO #cstore
+FROM SalesLineItemFact AS s
+JOIN CustomerDimension AS c ON s.CustomerDimensionID = c.CustomerDimensionID
+JOIN LocationDimension AS l ON s.LocationDimensionID = l.LocationDimensionID
+WHERE LocationTypeID = 5 AND
+DateDimensionID BETWEEN CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, -60, @lastweekend),112)) AND CONVERT(INT, CONVERT(CHAR(8),@lastweekend,112))	
+GROUP BY FactsWeekSubSegment
+
+SELECT CStore,
+		FactsWeekSubSegment,
+		Food_Customers,
+		CStore*1.0/Food_Customers*100 AS perc_cstore
+FROM #cstore
+GROUP BY CStore, FactsWeekSubSegment, Food_Customers
+
+DROP TABLE #cstore
+DROP TABLE #foodstore
+			
+DECLARE @lastWeekEnd DATE = (SELECT MAX(FYMonthEndingDate)
+								FROM dbo.DateDimension
+								WHERE FYMonthEndingDate < GETDATE())
+											
+SELECT COUNT(DISTINCT(s.CustomerDimensionID)) AS 'Food_Customers',
+		FactsWeekSubSegment,
+		(SELECT COUNT(DISTINCT(s.CustomerDimensionID)) AS 'CStore'
+		FROM SalesLineItemFact AS s
+		JOIN CustomerDimension AS c ON s.CustomerDimensionID = c.CustomerDimensionID
+		JOIN LocationDimension AS l ON s.LocationDimensionID = l.LocationDimensionID
+		WHERE LocationTypeID = 5 AND
+		DateDimensionID BETWEEN CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, -7, @lastweekend),112)) AND CONVERT(INT, CONVERT(CHAR(8),@lastweekend,112))) AS 'CStore'
+INTO #foodstore
+FROM SalesLineItemFact AS s
+JOIN CustomerDimension AS c ON s.CustomerDimensionID = c.CustomerDimensionID
+JOIN LocationDimension AS l ON s.LocationDimensionID = l.LocationDimensionID
+WHERE LocationTypeID = 1 AND
+DateDimensionID BETWEEN CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, -7, @lastweekend),112)) AND CONVERT(INT, CONVERT(CHAR(8),@lastweekend,112))	
+GROUP BY FactsWeekSubSegment
+
+SELECT Food_Customers,
+		FactsWeekSubSegment,
+		CStore,
+		Food_Customers*1.0/CStore*100 AS perc_foodstore
+FROM #foodstore
+GROUP BY CStore, FactsWeekSubSegment, Food_Customers
+
+
+

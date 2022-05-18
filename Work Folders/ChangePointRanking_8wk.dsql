@@ -1,0 +1,152 @@
+﻿/* ======================================================
+Identifying 10 random change points within each quintile
+========================================================= */
+
+-- Find quintiles based on norm_effect
+IF OBJECT_ID('tempdb..#Percentiles') IS NOT NULL
+	DROP TABLE #Percentiles
+SELECT DISTINCT PERCENTILE_CONT(0.2) WITHIN GROUP(ORDER BY norm_effect) OVER() AS P20,
+				PERCENTILE_CONT(0.4) WITHIN GROUP(ORDER BY norm_effect) OVER() AS P40,
+				PERCENTILE_CONT(0.6) WITHIN GROUP(ORDER BY norm_effect) OVER() AS P60,
+				PERCENTILE_CONT(0.8) WITHIN GROUP(ORDER BY norm_effect) OVER() AS P80
+INTO #Percentiles
+FROM dbo.historical_change_points_8wk
+
+-- Assign all change points to percentile range
+IF OBJECT_ID('tempdb..#HistoricalRange') IS NOT NULL
+	DROP TABLE #HistoricalRange
+SELECT h.nielsenCatSubcat,
+	   h.change_point,
+	   h.sales,
+	   h.PYsales,
+	   h.PYchg,
+	   h.norm_percent,
+	   h.effect_size_yoy,
+	   h.norm_effect,
+	   h.sig_score,
+	   CASE WHEN h.norm_effect >= P80
+			THEN '80-100'
+			WHEN h.norm_effect >= P60
+				 AND h.norm_effect < P80
+			THEN '60-79'
+			WHEN h.norm_effect >= P40
+				 AND h.norm_effect < P60
+			THEN '40-59'
+			WHEN h.norm_effect >= P20
+				 AND h.norm_effect < P40
+			THEN '20-39'
+			ELSE '0-19'
+	   END AS PercentileRange
+INTO #HistoricalRange
+FROM dbo.historical_change_points_8wk h
+	JOIN #Percentiles p
+		ON 1 = 1
+
+-- Assign rank within quintile by random ID
+IF OBJECT_ID('tempdb..#HistoricalRanked') IS NOT NULL
+	DROP TABLE #HistoricalRanked
+SELECT r.nielsenCatSubcat,
+	   r.change_point,
+	   r.sales,
+	   r.PYsales,
+	   r.PYchg,
+	   r.norm_percent,
+	   r.effect_size_yoy,
+	   r.norm_effect,
+	   r.sig_score,
+	   r.PercentileRange,
+	   ROW_NUMBER() OVER(PARTITION BY r.PercentileRange ORDER BY NEWID()) AS PercentileRank
+INTO #HistoricalRanked
+FROM #HistoricalRange r
+
+IF OBJECT_ID('tempdb..#sample') IS NOT NULL
+	DROP TABLE #sample
+SELECT nielsenCatSubcat,
+	   change_point,
+	   sales,
+	   PYsales,
+	   PYchg,
+	   norm_percent,
+	   effect_size_yoy,
+	   norm_effect,
+	   sig_score,
+	   PercentileRange,
+	   PercentileRank
+INTO #sample
+FROM #HistoricalRanked
+WHERE PercentileRank <= 27
+
+IF OBJECT_ID('tempdb..#final') IS NOT NULL
+	DROP TABLE #final
+
+;WITH final_sample AS
+(SELECT *,
+      ROW_NUMBER() OVER (PARTITION BY nielsenCatSubcat ORDER BY nielsenCatSubcat)     
+               AS rownum                                
+      FROM #sample
+    ) 
+SELECT nielsenCatSubcat, 
+	   change_point,
+	   sales,
+	   PYsales,
+	   PYchg,
+	   norm_percent,
+	   effect_size_yoy,
+	   norm_effect,
+	   sig_score,
+	   PercentileRange,
+	   PercentileRank
+INTO #final
+FROM final_sample
+WHERE rownum = 1 
+--ORDER BY final_sample.nielsenCatSubcat
+
+-- Creating sample table - DON'T RUN
+IF OBJECT_ID('dbo.historical_cpr_sample_8wk') IS NOT NULL
+	DROP TABLE dbo.historical_cpr_sample_8wk
+
+CREATE TABLE dbo.historical_cpr_sample_8wk
+(
+[nielsenCatSubcat] VARCHAR(100) NULL,
+[change_point] VARCHAR(100) NULL,
+[sales] DECIMAL(20, 4) NULL,
+[PYsales] DECIMAL(20, 4) NULL,
+[PYchg] DECIMAL(20, 4) NULL,
+[norm_percent] DECIMAL(20, 4) NULL,
+[effect_size_yoy] DECIMAL(20, 4) NULL,
+[norm_effect] DECIMAL(20, 4) NULL,
+[sig_score] DECIMAL(20, 4) NULL,
+PercentileRange VARCHAR(10) NULL,
+PercentileRank INT NULL
+)
+
+
+INSERT INTO dbo.historical_cpr_sample_8wk
+(
+	nielsenCatSubcat,
+	change_point,
+	sales,
+	PYsales,
+	PYchg,
+	norm_percent,
+	effect_size_yoy,
+	norm_effect,
+	sig_score,
+	PercentileRange,
+	PercentileRank
+)
+
+
+SELECT *
+FROM #final
+
+
+
+SELECT *
+FROM dbo.historical_change_points_8wk
+
+SELECT * FROM dbo.historical_cpr_sample_8wk
+
+DELETE 
+FROM dbo.historical_cpr_sample_revised
+

@@ -1,0 +1,37 @@
+﻿DECLARE @lastWeekEnd DATE = (SELECT MAX(FYWeekEndingDate)
+								FROM dbo.DateDimension
+								WHERE FYWeekEndingDate < GETDATE())
+SELECT COUNT(DISTINCT(UPC)) AS 'num_items'
+FROM SalesLineItemFact	AS s
+JOIN DateDimension AS d ON s.DateDimensionID = d.DateDimensionID
+JOIN CustomerDimension AS c ON s.CustomerDimensionID = c.CustomerDimensionID
+WHERE s.DateDimensionID BETWEEN CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, -60, @lastweekend),112)) AND CONVERT(INT, CONVERT(CHAR(8),@lastweekend,112)) 
+	AND s.CustomerDimensionID = '8716864'	
+
+DECLARE @lastWeekEnd DATE = (SELECT MAX(FYWeekEndingDate)
+								FROM dbo.DateDimension
+								WHERE FYWeekEndingDate < GETDATE())
+SELECT COUNT(DISTINCT(BasketKey)) AS 'num_baskets'
+FROM SalesLineItemFact	AS s
+JOIN DateDimension AS d ON s.DateDimensionID = d.DateDimensionID
+JOIN CustomerDimension AS c ON s.CustomerDimensionID = c.CustomerDimensionID
+WHERE s.DateDimensionID BETWEEN CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, -60, @lastweekend),112)) AND CONVERT(INT, CONVERT(CHAR(8),@lastweekend,112)) 
+	AND s.CustomerDimensionID = '8716864'	
+
+
+SELECT COUNT(DISTINCT(UPC)),
+	 s.DateDimensionID
+FROM SalesLineItemFact as s
+JOIN DateDimension AS d ON s.DateDimensionID = d.DateDimensionID
+JOIN CustomerDimension AS c ON s.CustomerDimensionID = c.CustomerDimensionID
+WHERE s.DateDimensionID BETWEEN CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, -60, @lastweekend),112)) AND CONVERT(INT, CONVERT(CHAR(8),@lastweekend,112)) 
+	AND s.CustomerDimensionID = '8716864' AND UPC IN
+	(SELECT BasketKey
+	 FROM SalesLineItemFact
+	 WHERE s.DateDimensionID BETWEEN CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, -60, @lastweekend),112)) AND CONVERT(INT, CONVERT(CHAR(8),@lastweekend,112)) 
+	 AND s.CustomerDimensionID = '8716864'
+
+GROUP BY BasketKey,
+	 --UPC,
+	 s.DateDimensionID
+ORDER BY s.DateDimensionID DESC

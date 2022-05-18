@@ -1,0 +1,23 @@
+﻿DECLARE @lastWeekEnd DATE = (SELECT MAX(FYWeekEndingDate)
+								FROM dbo.DateDimension
+								WHERE FYWeekEndingDate = '20180923')
+SELECT  b.CustomerDimensionID,
+		SUM(SaleAmount) AS 'Sales', 
+		COUNT(DISTINCT(BasketKey)) AS 'number_of_baskets', 
+		FactsWeekSegment,
+		TruPriceSegment,
+		b.LocationDimensionID,
+		MarketDescription,
+		CASE WHEN DateDimensionID BETWEEN CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, -14, @lastweekend),112)) AND CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, -7, @lastweekend),112)) 
+				THEN 'yes'
+			ELSE 'no' END AS 'shopped_prior',
+		CASE WHEN DateDimensionID BETWEEN CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, -7, @lastweekend),112)) AND CONVERT(INT, CONVERT(CHAR(8), @lastweekend,112)) 
+				THEN 'yes'
+			ELSE 'no' END AS 'shopped_during'
+FROM SalesBasketFact  AS b
+JOIN LocationDimension AS l ON b.LocationDimensionID = l.LocationDimensionID
+JOIN CustomerDimension AS c ON b.CustomerDimensionID = c.CustomerDimensionID
+WHERE DateDimensionID BETWEEN CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, -14, @lastweekend),112)) AND CONVERT(INT, CONVERT(CHAR(8),@lastweekend,112)) 
+	AND b.CustomerDimensionID <> 1 AND LocationTypeID <> 5
+GROUP BY b.CustomerDimensionID, FactsWeekSegment, TruPriceSegment, b.LocationDimensionID, MarketDescription, DateDimensionID
+ORDER BY CustomerDimensionID

@@ -1,0 +1,95 @@
+﻿--prep_query
+    DECLARE @EDate DATE = (SELECT MAX(FYWeekEndingDate)
+    FROM DateDimension
+    WHERE FYWeekEndingDate < GETDATE())
+    DECLARE @BDate DATE = (SELECT MIN(ActualDate)
+    FROM dbo.DateDimension
+    WHERE FYWeekEndingDate = DATEADD(WEEK, -103, @EDate))
+    DECLARE @PriorBDate DATE = DATEADD(WEEK, -52, @BDate)
+    
+    IF OBJECT_ID('tempdb..#Dates') IS NOT NULL
+    DROP TABLE #Dates
+    SELECT DISTINCT FYWeekEndingDate,
+    DATEADD(DAY, -1, FYWeekEndingDate) AS WeekEndingDate,
+    FYYearNumber,
+    FYWeekNumber
+    INTO #Dates
+    FROM DateDimension
+    WHERE ActualDate BETWEEN @PriorBDate AND @EDate
+    
+    --UPCs for Nielsen ROM data
+    IF OBJECT_ID('tempdb..#UPC') IS NOT NULL
+    DROP TABLE #UPC
+    SELECT StoreItemDimensionID,
+    LEFT(UPC, 12) AS UPC,
+	NielsenCategory,
+	NielsenSubcategory,
+    NielsenCategory_Key,
+    NielsenSubCategory_Key
+    INTO #UPC
+    FROM StoreItemDimension
+	WHERE nielsenCategory_Key <> -1
+	AND nielsenSubcategory_Key <> -1
+    
+    --Weekly ROM sales from T_DIM_ODS.dbo.Nielsen_MarketData
+    IF OBJECT_ID('tempdb..#NielsenSales') IS NOT NULL
+    DROP TABLE #NielsenSales
+    SELECT d.FYWeekEndingDate AS week,
+    d.WeekEndingDate AS CWeek,
+    d.FYYearNumber,
+    d.FYWeekNumber,
+	u.NielsenCategory AS nielsenCategory,
+	u.NielsenSubcategory AS nielsenSubcategory,
+    u.NielsenCategory_Key AS nielsenCategory_Key,
+    u.NielsenSubcategory_Key AS nielsenSubcategory_Key,
+    SUM(nmd.Dollars) AS sales
+    INTO #NielsenSales
+    FROM T_DIM_ODS.dbo.Nielsen_MarketData nmd
+    JOIN #Dates d
+    ON d.WeekEndingDate = nmd.WeekEndingDate
+    JOIN #UPC u
+    ON u.UPC = nmd.UPC
+    WHERE nmd.Market_Display_Name = 'Hy-Vee Total xAOC Rem'
+    GROUP BY d.FYWeekEndingDate,
+             d.WeekEndingDate,
+             d.FYYearNumber,
+             d.FYWeekNumber,
+             u.NielsenCategory,
+             u.NielsenSubcategory,
+             u.NielsenCategory_Key,
+             u.NielsenSubCategory_Key
+    
+    --Calculating prior year ROM sales
+    IF OBJECT_ID('tempdb..#NielsenSalesComp') IS NOT NULL
+    DROP TABLE #NielsenSalesComp
+    SELECT c1.week,
+    c1.FYYearNumber,
+    c1.FYWeekNumber,
+	c1.nielsenCategory,
+    c1.nielsenSubcategory,
+    c1.nielsenCategory_Key,
+    c1.nielsenSubcategory_Key,
+    c1.sales,
+    c2.sales AS PYsales,
+    ISNULL((c1.sales - c2.sales) / NULLIF(c2.sales, 0), 0) AS PYchg
+    INTO #NielsenSalesComp
+    FROM #NielsenSales c1
+    JOIN #NielsenSales c2
+    ON c2.nielsenCategory_Key = c1.nielsenCategory_Key
+    AND c2.nielsenSubcategory_Key = c1.nielsenSubcategory_Key
+    AND c2.FYWeekNumber = c1.FYWeekNumber
+    AND c2.FYYearNumber = c1.FYYearNumber - 1
+
+    --final_query
+    SELECT nielsenCategory,
+    nielsenCategory_Key,
+    nielsenSubcategory,
+    nielsenSubcategory_Key,
+    nielsenCategory + '-' + nielsenSubcategory AS nielsenCatSubcat,
+	week,
+    ISNULL(sales, 0) AS sales_ROM,
+    ISNULL(PYsales, 0) AS PYsales_ROM,
+    ISNULL(PYchg, 0) AS PYchg_ROM
+    FROM #NielsenSalesComp 
+   
+ 

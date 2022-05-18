@@ -1,0 +1,52 @@
+﻿IF OBJECT_ID('tempdb..#before') IS NOT NULL 
+DROP TABLE #before
+
+IF OBJECT_ID('tempdb..#during') IS NOT NULL 
+DROP TABLE #during
+
+DECLARE @lastWeekEnd DATE = (SELECT MAX(FYWeekEndingDate)
+								FROM dbo.DateDimension
+								WHERE FYWeekEndingDate = '20180923')
+SELECT  b.CustomerDimensionID,
+		SUM(SaleAmount) AS 'Sales', 
+		COUNT(BasketKey) AS 'number_of_baskets', 
+		FactsWeekSegment,
+		TruPriceSegment,
+		MarketDescription
+INTO #during
+FROM SalesBasketFact  AS b
+JOIN LocationDimension AS l ON b.LocationDimensionID = l.LocationDimensionID
+JOIN CustomerDimension AS c ON b.CustomerDimensionID = c.CustomerDimensionID
+WHERE DateDimensionID BETWEEN CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, -6, @lastweekend),112)) AND CONVERT(INT, CONVERT(CHAR(8),@lastweekend,112)) 
+	AND b.CustomerDimensionID <> 1 AND LocationTypeID <> 5
+GROUP BY b.CustomerDimensionID, FactsWeekSegment, TruPriceSegment, MarketDescription
+
+SELECT  b.CustomerDimensionID,
+		SUM(SaleAmount) AS 'Sales', 
+		COUNT(BasketKey) AS 'number_of_baskets', 
+		FactsWeekSegment,
+		TruPriceSegment,
+		MarketDescription
+INTO #before
+FROM SalesBasketFact  AS b
+JOIN LocationDimension AS l ON b.LocationDimensionID = l.LocationDimensionID
+JOIN CustomerDimension AS c ON b.CustomerDimensionID = c.CustomerDimensionID
+WHERE DateDimensionID BETWEEN CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, -13, @lastweekend),112)) AND CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, -7, @lastweekend),112)) 
+	AND b.CustomerDimensionID <> 1 AND LocationTypeID <> 5
+GROUP BY b.CustomerDimensionID, FactsWeekSegment, TruPriceSegment, MarketDescription
+
+SELECT b.CustomerDimensionID,
+	   b.Sales,
+	   b.number_of_baskets,
+	   b.FactsWeekSegment,
+	   b.TruPriceSegment,
+	   b.MarketDescription,
+	   d.CustomerDimensionID,
+	   d.Sales,
+	   d.number_of_baskets,
+	   d.FactsWeekSegment,
+	   d.TruPriceSegment,
+	   d.MarketDescription
+FROM #before AS b
+FULL OUTER JOIN #during AS d ON b.CustomerDimensionID = d.CustomerDimensionID
+ORDER BY b.CustomerDimensionID
